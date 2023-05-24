@@ -25,7 +25,7 @@ class Bridge(Boxes):
         Boxes.__init__(self)
 
         self.addSettingsArgs(edges.FingerJointSettings, finger=10.0,space=10.0)
-        self.buildArgParser(x=70, y=70, h=150)
+        self.buildArgParser(x=70, h=150)
         self.argparser.add_argument(
             "--bridgeGirderSpan",  action="store", type=float, default=300,
             help="Length of the Bridge Girder Span in mm. Ignored if bridgeAngle and centerlineRadius are set. LGB10000=300 LGB10600=600 LGB10610=1200")
@@ -53,6 +53,9 @@ class Bridge(Boxes):
         self.argparser.add_argument(
             "--numBulkheads",  action="store", type=float, default=2,
             help="number of Bulkheads")
+        self.argparser.add_argument(
+            "--matingHolesDiam",  action="store", type=float, default=5,
+            help="diameter of the holes in the bottom of the bridge span plate and top of the support to join them via a pin in mm")
 
     def rectangularWallTest(self, x, y, edges="eeee",
                         ignore_widths=[],
@@ -139,14 +142,16 @@ class Bridge(Boxes):
                     break
             self.move(2*r_outside, 2*r_outside, move)
 
-    def straightBottomPlate(self, length, bottomPlateWidth, width, numBulkheads):
-        fingerHoles = [ lambda: self.bottomPlateCuts(length, bottomPlateWidth, width, numBulkheads) ]
-        self.rectangularWall(length, bottomPlateWidth, "efef", callback=fingerHoles, move="up")
+    def cosineRule(self, sideA, sideB, angleC):
+        return math.sqrt(pow(sideA,2) + pow(sideB,2) - 2*sideA*sideB*math.cos(angleC))
 
-    def bottomPlateCuts(self, length, bottomPlateWidth, width, numBulkheads):
+    def straightBottomPlate(self, length, bottomPlateWidth, width, numBulkheads, matingHolesDiam):
+        fingerHoles = [ lambda: self.bottomPlateCuts(length, bottomPlateWidth, width, numBulkheads,matingHolesDiam) ]
+        self.rectangularWall(length, bottomPlateWidth, "eFeF", callback=fingerHoles, move="up")
+
+    def bottomPlateCuts(self, length, bottomPlateWidth, width, numBulkheads, matingHolesDiam):
         self.plateSlots(length, bottomPlateWidth, width, numBulkheads)
         webThickness = edgeOffset = width/8.0
-        print("TEST")
         bulkheadGap = length/(numBulkheads+1)
         x = 0
         for i in range(int(numBulkheads) + 1):
@@ -154,9 +159,17 @@ class Bridge(Boxes):
             self.testleLatticeHole(x,bottomPlateWidth,bulkheadGap,width,edgeOffset,webThickness)
         #tlhx = [lambda: self.testleLatticeHole(x,h,x,h,edgeOffset,webThickness)]
 
+        self.mountingHoles(length, bottomPlateWidth, matingHolesDiam, matingHolesDiam*1.5, 0, (bottomPlateWidth-width)/2.0)
+
+    def mountingHoles(self, x, y, holeDiam, holeOffset, xOffset, yOffset):
+        self.hole(x-holeOffset-xOffset, y-holeOffset-yOffset, d=holeDiam)
+        self.hole(holeOffset+xOffset, y-holeOffset-yOffset, d=holeDiam)
+        self.hole(holeOffset+xOffset, holeOffset+yOffset, d=holeDiam)
+        self.hole(x-holeOffset-xOffset, holeOffset+yOffset, d=holeDiam)
+
     def straightTopPlate(self, length, deckWidth, width, numBulkheads):
         fingerHoles = [ lambda: self.plateSlots(length, deckWidth, width, numBulkheads) ]
-        self.rectangularWall(length, deckWidth, "efef", callback=fingerHoles, move="up")
+        self.rectangularWall(length, deckWidth, "eFeF", callback=fingerHoles, move="up")
 
     def bulkheadSlots(self, bulkheadGap, height, y=0, numBulkheads=2):
         posx = -0.5 * self.thickness
@@ -175,13 +188,10 @@ class Bridge(Boxes):
         bulkheadSlots = [lambda: self.bulkheadSlots(bulkheadGap, height, 0, numBulkheads)]
         self.rectangularWall(length, height, "ffff", callback=bulkheadSlots, move="up")
 
-    def brideSpan(self, length, width, height, deckWidth, numBulkheads=2, centerlineRadius=0, bridgeAngle=0):
-        print(length, width, height)
+    def brideSpan(self, length, width, height, deckWidth, matingHolesDiam, numBulkheads=2, centerlineRadius=0, bridgeAngle=0):
         if(centerlineRadius > 0 and bridgeAngle > 0):
             outerRadius = centerlineRadius + (deckWidth/2.0)
             innerRadius = centerlineRadius - (deckWidth/2.0)
-            print(outerRadius, innerRadius, bridgeAngle)
-
             self.moveTo(0, 0)
             innerSpanLength = (math.tau * innerRadius) * (bridgeAngle / 360.0)
             self.rectangularWall(innerSpanLength, height, "efef", move="up")
@@ -195,7 +205,7 @@ class Bridge(Boxes):
             
             # Bridge Bottom Plate
             bottomPlateWidth = (deckWidth - width)/2.0 + width
-            self.straightBottomPlate(length, bottomPlateWidth, width, numBulkheads)
+            self.straightBottomPlate(length, bottomPlateWidth, width, numBulkheads, matingHolesDiam)
 
             # Bridge Gider Side plates
             for i in range(2):
@@ -210,7 +220,7 @@ class Bridge(Boxes):
         tlhx = [lambda: self.testleLatticeHole(width,height,width,height,edgeOffset,webThickness)]
         # Bridge span end cross member
         for i in range(2):
-            self.rectangularWall(width, height, "FFFF", callback=tlhx, move="right")
+            self.rectangularWall(width, height, "fFfF", callback=tlhx, move="right")
         # Bridge span internal cross member
         for i in range(2):
             self.rectangularWall(width, height, "ffff", callback=tlhx, move="only left")
@@ -321,15 +331,18 @@ class Bridge(Boxes):
                 self.edge(b + plateHeight/2.0)
 
     def render(self):
-        x, y, h, bridgeGirderSpan, bridgeGirderHeight, bridgeGirderWidth, bridgeDeckWidth, centerlineRadius, bridgeAngle, edgeOffset, webThickness, numBulkheads = self.x, self.y, self.h, self.bridgeGirderSpan, self.bridgeGirderHeight, self.bridgeGirderWidth, self.bridgeDeckWidth, self.centerlineRadius, self.bridgeAngle, self.edgeOffset, self.webThickness, self.numBulkheads
+        x, h, bridgeGirderSpan, bridgeGirderHeight, bridgeGirderWidth, bridgeDeckWidth, centerlineRadius, bridgeAngle, edgeOffset, webThickness, numBulkheads,matingHolesDiam = self.x, self.h, self.bridgeGirderSpan, self.bridgeGirderHeight, self.bridgeGirderWidth, self.bridgeDeckWidth, self.centerlineRadius, self.bridgeAngle, self.edgeOffset, self.webThickness, self.numBulkheads, self.matingHolesDiam
 
-        self.brideSpan(bridgeGirderSpan - (2.0*self.thickness), bridgeGirderWidth, bridgeGirderHeight, bridgeDeckWidth, numBulkheads, centerlineRadius, bridgeAngle)
+        self.brideSpan(bridgeGirderSpan - (2.0*self.thickness), bridgeGirderWidth, bridgeGirderHeight, bridgeDeckWidth, matingHolesDiam, numBulkheads, centerlineRadius, bridgeAngle)
 
         tlhx = [lambda: self.testleLatticeHole(x,h,x,h,edgeOffset,webThickness)]
-        tlhy = [lambda: self.testleLatticeHole(y,h,y,h,edgeOffset,webThickness)]
+        self.rectangularWall(x, h, "eFfF", callback=tlhx, move="right")
+        self.rectangularWall(x, h, "eFfF", callback=tlhx, move="up")
 
-        self.rectangularWall(x, h, "efef", callback=tlhx, move="right")
-        self.rectangularWall(x, h, "eFeF", callback=tlhx, move="up")
-        self.rectangularWall(y, h, "efef", callback=tlhy, move="left right")
-        self.rectangularWall(y, h, "eFeF", callback=tlhy, move="up")
-        #self.rectangularWallTest(x, h, "efef", move="right")
+        tlhy = [lambda: self.testleLatticeHole(bridgeGirderWidth,h,bridgeGirderWidth,h,edgeOffset,webThickness)]
+        self.rectangularWall(bridgeGirderWidth, h, "efff", callback=tlhy, move="left right")
+        self.rectangularWall(bridgeGirderWidth, h, "efff", callback=tlhy, move="up")
+
+        xOffset = (x/2) - ( matingHolesDiam + matingHolesDiam*3) 
+        mountingHoles = [lambda: self.mountingHoles(x, bridgeGirderWidth, matingHolesDiam, matingHolesDiam*1.5, xOffset, 0)]
+        self.rectangularWall(x, bridgeGirderWidth, "FFFF", callback=mountingHoles, move="up")
