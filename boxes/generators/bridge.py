@@ -146,15 +146,15 @@ class Bridge(Boxes):
 
     def outSidePlateHoles(self, bulkheadGap, height, y=0, numBulkheads=2):
         holeHeight = height - self.thickness*3.0
-        holeWidth = (bulkheadGap - self.thickness)/2
+        holeWidth = bulkheadGap/2 - self.thickness
         #posx = -0.5 * self.thickness
-        posx = -0.5 * holeWidth - self.thickness
+        posx = 0.5 * holeWidth + self.thickness/2
         posy = 0.5 * height
         for x in range(int(numBulkheads+1)):
-            posx += holeWidth + self.thickness
             self.rectangularHole(posx, posy, holeWidth, holeHeight)
-            posx += holeWidth + self.thickness
+            posx += holeWidth + self.thickness 
             self.rectangularHole(posx, posy, holeWidth, holeHeight)
+            posx += holeWidth + self.thickness + self.thickness
             #self.fingerHolesAt(posx, y, height, 90)
 
     def brideSpan(self, length, width, height, deckWidth, matingHolesDiam, numBulkheads=2, centerlineRadius=0, bridgeAngle=0):
