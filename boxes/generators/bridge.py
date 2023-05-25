@@ -36,7 +36,7 @@ class Bridge(Boxes):
             "--bridgeGirderWidth",  action="store", type=float, default=90,
             help="Width of the Bridge Girder in mm")
         self.argparser.add_argument(
-            "--bridgeDeckWidth",  action="store", type=float, default=110,
+            "--bridgeDeckWidth",  action="store", type=float, default=120,
             help="Width of the Bridge Deck in mm")
         self.argparser.add_argument(
             "--centerlineRadius",  action="store", type=float, default=0,
@@ -56,63 +56,6 @@ class Bridge(Boxes):
         self.argparser.add_argument(
             "--matingHolesDiam",  action="store", type=float, default=5,
             help="diameter of the holes in the bottom of the bridge span plate and top of the support to join them via a pin in mm")
-
-    def rectangularWallTest(self, x, y, edges="eeee",
-                        ignore_widths=[],
-                        holesMargin=None, holesSettings=None,
-                        bedBolts=None, bedBoltSettings=None,
-                        move=None,
-                        label=""):
-        """
-        Rectangular wall for all kind of box like objects
-
-        :param x: width
-        :param y: height
-        :param edges:  (Default value = "eeee") bottom, right, top, left
-        :param ignore_widths: list of edge_widths added to adjacent edge
-        :param holesMargin:  (Default value = None)
-        :param holesSettings:  (Default value = None)
-        :param bedBolts:  (Default value = None)
-        :param bedBoltSettings:  (Default value = None)
-        :param callback:  (Default value = None)
-        :param move:  (Default value = None)
-        :param label: rendered to identify parts, it is not ment to be cut or etched (Default value = "")
-        """
-        if len(edges) != 4:
-            raise ValueError("four edges required")
-        print(edges)
-        edges = [self.edges.get(e, e) for e in edges]
-        print(edges)
-        edges += edges  # append for wrapping around
-        print(edges)
-        
-        overallwidth = x + edges[-1].spacing() + edges[1].spacing()
-        print(x, edges[-1].spacing(), edges[1].spacing())
-                
-        overallheight = y + edges[0].spacing() + edges[2].spacing()
-        
-        if self.move(overallwidth, overallheight, move, before=True):
-            return
-
-        if 7 not in ignore_widths:
-            self.moveTo(edges[-1].spacing())
-        self.moveTo(0, edges[0].margin())
-        for i, l in enumerate((x, y, x, y)):
-            e1, e2 = edges[i], edges[i + 1]
-            if (2*i-1 in ignore_widths or
-                2*i-1+8 in ignore_widths):
-                l += edges[i-1].endwidth()
-            if 2*i in ignore_widths:
-                l += edges[i+1].startwidth()
-                e2 = self.edges["e"]
-            if 2*i+1 in ignore_widths:
-                e1 = self.edges["e"]
-
-            edges[i](l,
-                     bedBolts=self.getEntry(bedBolts, i),
-                     bedBoltSettings=self.getEntry(bedBoltSettings, i))
-            self.edgeCorner(e1, e2, 90)     #This is what draws
-        self.move(overallwidth, overallheight, move, label=label)
 
     def ringSegmentWithEdges(self, r_outside, r_inside, angle, n=1, move=None):
         """Ring Segment
@@ -151,7 +94,8 @@ class Bridge(Boxes):
 
     def bottomPlateCuts(self, length, bottomPlateWidth, width, numBulkheads, matingHolesDiam):
         self.plateSlots(length, bottomPlateWidth, width, numBulkheads)
-        webThickness = edgeOffset = width/8.0
+        webThickness = self.thickness*2.0
+        edgeOffset = (bottomPlateWidth - width)/2 + self.thickness
         bulkheadGap = length/(numBulkheads+1)
         x = 0
         for i in range(int(numBulkheads) + 1):
@@ -179,14 +123,39 @@ class Bridge(Boxes):
 
     def plateSlots(self, length, plateWidth, width, numBulkheads):
         bulkheadGap = (length-(self.thickness*numBulkheads))/(numBulkheads+1)
-        self.fingerHolesAt(0, (plateWidth-width)/2.0, length, 0)
-        self.fingerHolesAt(0, plateWidth - ((plateWidth-width)/2.0), length, 0)
+        self.edges["h"].settings.setValues(self.thickness, width=2.0)
+        self.fingerHolesAt(0, (plateWidth-width)/2.0 - self.thickness, length, 0)
+        self.fingerHolesAt(0, plateWidth + self.thickness - ((plateWidth-width)/2.0), length, 0)
+        self.edges["h"].settings.setValues(self.thickness, width=1.0)
         self.bulkheadSlots(bulkheadGap, width, ((plateWidth-(width)+self.thickness)/2.0), numBulkheads)
 
     def sidePlate(self, length, height, numBulkheads):
+        self.innersSidePlate(length, height, numBulkheads)
+        self.outerSidePlate(length, height, numBulkheads)
+    
+    def innersSidePlate(self, length, height, numBulkheads):
         bulkheadGap = (length-(self.thickness*numBulkheads))/(numBulkheads+1)
         bulkheadSlots = [lambda: self.bulkheadSlots(bulkheadGap, height, 0, numBulkheads)]
         self.rectangularWall(length, height, "ffff", callback=bulkheadSlots, move="up")
+
+    def outerSidePlate(self, length, height, numBulkheads):
+        bulkheadGap = (length-(self.thickness*numBulkheads))/(numBulkheads+1)
+        outSidePlateHoles = [lambda: self.outSidePlateHoles(bulkheadGap, height, 0, numBulkheads)]
+        
+        self.rectangularWall(length, height, "fEfE", callback=outSidePlateHoles, move="up")
+
+    def outSidePlateHoles(self, bulkheadGap, height, y=0, numBulkheads=2):
+        holeHeight = height - self.thickness*3.0
+        holeWidth = (bulkheadGap - self.thickness)/2
+        #posx = -0.5 * self.thickness
+        posx = -0.5 * holeWidth - self.thickness
+        posy = 0.5 * height
+        for x in range(int(numBulkheads+1)):
+            posx += holeWidth + self.thickness
+            self.rectangularHole(posx, posy, holeWidth, holeHeight)
+            posx += holeWidth + self.thickness
+            self.rectangularHole(posx, posy, holeWidth, holeHeight)
+            #self.fingerHolesAt(posx, y, height, 90)
 
     def brideSpan(self, length, width, height, deckWidth, matingHolesDiam, numBulkheads=2, centerlineRadius=0, bridgeAngle=0):
         if(centerlineRadius > 0 and bridgeAngle > 0):
@@ -204,7 +173,7 @@ class Bridge(Boxes):
         else:
             
             # Bridge Bottom Plate
-            bottomPlateWidth = (deckWidth - width)/2.0 + width
+            bottomPlateWidth = (deckWidth - width)/2.0 + width + 2*self.thickness
             self.straightBottomPlate(length, bottomPlateWidth, width, numBulkheads, matingHolesDiam)
 
             # Bridge Gider Side plates
